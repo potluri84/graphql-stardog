@@ -1,0 +1,25 @@
+type search {
+        term: String
+        results: [Result]
+}
+
+type Result {
+     uri: String
+     label: String
+     types: [Type]
+     matches: [Match]
+}
+
+type Type {
+    uri: String
+}
+
+type Match {
+   propertyUri: String
+   string: String
+}
+
+type Query
+{
+    search(text) : results
+}

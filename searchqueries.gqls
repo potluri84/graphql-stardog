@@ -1,0 +1,18 @@
+{
+  search(text: "Ramu*")
+  {
+    text
+    results {
+        uri
+        label
+        types
+        {
+          uri
+        }
+        matches{
+          propertyUri
+          string
+        }
+      }
+    }
+  }
