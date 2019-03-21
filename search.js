@@ -4,6 +4,9 @@ const {
     Connection,
     query
 } = require('stardog');
+const newEngine = require('@comunica/actor-init-sparql').newEngine;
+const myEngine = newEngine();
+const { dispatchQuery } = require('./graphdb');
 
 const typeDefs = gql `
   
@@ -11,37 +14,45 @@ type taxonomy {
     name: String
 }
 
-  type searchResult {
+  type searchResult @cacheControl(maxAge: 240) {
     term: String
     results: [result]
   }
 
-  type result {
+  type result @cacheControl(maxAge: 240) {
       uri: String
       label: String
       types: [typesOf]
       matches: [match]  
   }
 
-  type typesOf {
+  type typesOf @cacheControl(maxAge: 240) {
       uri: String
   }
 
- type match {
+ type match @cacheControl(maxAge: 240) {
      propertyUri: String
      string: String
  }
 
- type results {
+ type results @cacheControl(maxAge: 240) {
      uri: String
      type: String
      property: String
      string: String
  }
 
- type autoSearchResults {
+ type autoSearchResults @cacheControl(maxAge: 240) {
      matches: String
      classType: String
+ }
+
+ type generalSearchResults @cacheControl(maxAge: 240) {
+          matches: String
+               type: String
+               uri: String
+
+
  }
 
   type Query {
@@ -49,6 +60,8 @@ type taxonomy {
       searchUsingSparQL(text: String): [results]!
       searchUsingSparQLDemo(text: String): [results]!
       autoSearch(text: String, type: String): [autoSearchResults]!
+      generalSearch(text: String, type: String, limit: Int, offset: Int): [generalSearchResults]!
+      graphdb(text: String): String
 
   }
 
@@ -63,12 +76,37 @@ const baseURL =`http://localhost:5820/annex/appmon/search`
 const conn = new Connection({
     username: 'admin',
     password: 'admin',
-    endpoint: 'http://localhost:5820',
+    endpoint: 'http://localhost:7200/repositories/appmon',
 });
 
 
 const resolvers = {
     Query: {
+        graphdb: (parent,args) => {
+           /* return myEngine.query('PREFIX : <http://www.ontotext.com/connectors/lucene#> ' +
+                    'PREFIX inst: <http://www.ontotext.com/connectors/lucene/instance#>'+
+                    ' SELECT ?entity ?snippetField ?snippetText {'+
+                     '   ?search a inst:text_index; '+
+                     '  :query "Auto finance" ; :entities ?entity. ' +
+                      '      ?entity :snippets _:s . _:s :snippetField ?snippetField; :snippetText ?snippetText.}', {
+                        sources: [{
+                            type: 'sparql',
+                            value: 'http://localhost:7200/repositories/appmon'
+                        }]
+                    }).then(function (result) {
+                        result.bindingsStream.on('data', function (data) {
+                            console.log(data.toObject());
+                        });
+                                                    return "dine";
+                    });*/
+                   var sparql = "select * { ?s ?p ?o }";
+                   return dispatchQuery('http://localhost:7200/repositories/appmon', sparql).then(({
+                       body
+                   }) => {
+                       console.log(body.results.bindings)
+                       return body.results.bindings;
+                   });;
+        },
         search: (parent,args) => 
         {
             const { text } = args
@@ -97,7 +135,6 @@ const resolvers = {
                 }).then(({ body }) => {
                     var sdResult = new SDResult(body.results.bindings)
                     var res = sdResult.convertToSearchResults();
-                    console.log(res);
                     return res;
                 });
         },
@@ -116,10 +153,25 @@ const resolvers = {
                     offset: 0,
                 }).then(({body
             }) => {
-                console.log(body.results.bindings);
                 return body.results.bindings;
             });
-        }
+        },
+generalSearch: (parent, args) => {
+    console.log(args.text)
+    var sparql = "SELECT DISTINCT ?matches ?property (?entity as ?uri) ?type"  +
+        " WHERE { ?matches stardog:property:textMatch '" + args.text + "'." +
+        " ?entity ?property ?matches. ?entity rdf:type ?type }";
+    console.log(sparql)
+    return query.execute(conn, 'appmon', sparql,
+        'application/sparql-results+json', {
+            limit: args.limit,
+            offset: args.offset,
+        }).then(({
+        body
+    }) => {
+        return body.results.bindings;
+    });
+}
     },
     results: {
         uri: (root) => root.uri,
@@ -130,12 +182,23 @@ const resolvers = {
     autoSearchResults: {
         matches: (root) => root.matches.value,
         classType: (root) => root.type.value
+    },
+    generalSearchResults: {
+        matches: (root) => root.matches.value,
+        type: (root) => root.type.value,
+        uri: (root) => root.uri.value
+
     }
 };
 
 const server = new ApolloServer({
     typeDefs,
-    resolvers
+    resolvers,
+    engine: {
+        apiKey: "service:potluri84-9450:YHF-SuKCiE3Uz6bW8kef8g"
+    },
+    tracing:true,
+    cacheControl:true
 });
 
 server.listen().then(({
